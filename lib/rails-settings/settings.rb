@@ -1,7 +1,8 @@
 module RailsSettings
   class Settings < ActiveRecord::Base
 
-    self.table_name = table_name_prefix + 'settings'
+    self.table_name = 'settings'
+    attr_accessible :var
 
     class SettingNotFound < RuntimeError; end
 
@@ -13,40 +14,40 @@ module RailsSettings
       @@defaults = SettingsDefaults::DEFAULTS.with_indifferent_access
     end
 
-    # get or set a variable with the variable as the called method
+    #get or set a variable with the variable as the called method
     def self.method_missing(method, *args)
       method_name = method.to_s
       super(method, *args)
+
     rescue NoMethodError
-      # set a value for a variable
-      if method_name[-1] == "="
-        var_name = method_name.sub('=', '')
+      #set a value for a variable
+      if method_name =~ /=$/
+        var_name = method_name.gsub('=', '')
         value = args.first
         self[var_name] = value
+
+      #retrieve a value
       else
-        # retrieve a value
         self[method_name]
+
       end
     end
 
-    # destroy the specified settings record
+    #destroy the specified settings record
     def self.destroy(var_name)
       var_name = var_name.to_s
-      obj = object(var_name)
-      unless obj.nil?
-        obj.destroy
+      if self[var_name]
+        object(var_name).destroy
         true
       else
         raise SettingNotFound, "Setting variable \"#{var_name}\" not found"
       end
     end
 
-    # retrieve all settings as a hash (optionally starting with a given namespace)
-    def self.get_all(starting_with = nil)
-      vars = thing_scoped.select("var, value")
-      if starting_with
-        vars = vars.where("var LIKE '#{starting_with}%'")
-      end
+    #retrieve all settings as a hash (optionally starting with a given namespace)
+    def self.all(starting_with=nil)
+      options = starting_with ? { :conditions => "var LIKE '#{starting_with}%'"} : {}
+      vars = thing_scoped.find(:all, {:select => 'var, value'}.merge(options))
 
       result = {}
       vars.each do |record|
@@ -55,12 +56,7 @@ module RailsSettings
       result.with_indifferent_access
     end
 
-    def self.where(sql = nil)
-      vars = thing_scoped.where(sql) if sql
-      vars
-    end
-
-    # get a setting value by [] notation
+    #get a setting value by [] notation
     def self.[](var_name)
       if var = object(var_name)
         var.value
@@ -75,7 +71,7 @@ module RailsSettings
     def self.[]=(var_name, value)
       var_name = var_name.to_s
 
-      record = object(var_name) || thing_scoped.new(var: var_name)
+      record = object(var_name) || thing_scoped.new(:var => var_name)
       record.value = value
       record.save!
 
@@ -95,22 +91,11 @@ module RailsSettings
     end
 
     def self.object(var_name)
-      thing_scoped.where(var: var_name.to_s).first
-    end
-
-    # get the value field, YAML decoded
-    def value
-      YAML::load(self[:value])
-    end
-
-    # set the value field, YAML encoded
-    def value=(new_value)
-      self[:value] = new_value.to_yaml
+      thing_scoped.where(:var => var_name.to_s).first
     end
 
     def self.thing_scoped
-      unscoped.where("thing_type is NULL and thing_id is NULL")
+      self.scoped_by_thing_type_and_thing_id(nil, nil)
     end
-    
   end
 end
